@@ -22,59 +22,7 @@ def find_col(headers, names):
     return None
 
 def process_project(tbl, out_dir, ident):
-def parse_hours_from_clndr_data(clndr_data: str) -> float:
-    """
-    Extract average working hours per active day from a P6 clndr_data blob.
-    Falls back to 8.0 on any parsing issue.
-    """
-    if not clndr_data:
-        return 8.0
-    try:
-        # strip non-printable chars (notably 0x7F) so regex works
-        clean = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', clndr_data)
-        # isolate DaysOfWeek() block if possible
-        start = clean.find('DaysOfWeek')
-        end = clean.find('VIEW(')
-        segment = clean[start:end] if start != -1 and end != -1 else clean
-        # regex for segments  s|HH:MM|f|HH:MM
-        pattern = re.compile(r's\|(\d{2}):(\d{2})\|f\|(\d{2}):(\d{2})')
-        # iterate days, accumulate hours
-        total_hours = 0.0
-        day_count = 0
-        for m in pattern.finditer(segment):
-            h1, m1, h2, m2 = map(int, m.groups())
-            hours = (h2 + m2 / 60) - (h1 + m1 / 60)
-            if hours > 0:
-                total_hours += hours
-                day_count += 1
-        if day_count == 0:
-            return 8.0
-        return total_hours / day_count
-    except Exception:
-        return 8.0
-
-def build_calendar_hours_map(calendar_tbl) -> dict:
-    """
-    Return {clndr_id: hours_per_day} using parse_hours_from_clndr_data.
-    """
-    if not calendar_tbl or not calendar_tbl.get('rows'):
-        return {}
-    hc = calendar_tbl['headers'] or []
-    cid_col = find_col(hc, ['clndr_id'])
-    data_col = find_col(hc, ['clndr_data'])
-    if not cid_col or not data_col:
-        return {}
-    out = {}
-    for r in calendar_tbl['rows']:
-        cid = r.get(cid_col)
-        hpd = parse_hours_from_clndr_data(r.get(data_col, ''))
-        try:
-            out[int(cid)] = hpd
-        except (ValueError, TypeError):
-            out[cid] = hpd
-    return out
-
-    if not tbl['rows']:
+    if not tbl or not tbl.get('rows'):
         return
     r = tbl['rows'][0]
     pid = find_col(tbl['headers'], ['proj_id'])
@@ -95,6 +43,50 @@ def build_calendar_hours_map(calendar_tbl) -> dict:
         datadate = r.get(ls)
     with open(os.path.join(out_dir, f'{ident}_datadate.txt'), 'w') as f:
         f.write(datadate or '')
+
+def parse_hours_from_clndr_data(clndr_data: str) -> float:
+    if not clndr_data:
+        return 8.0
+    try:
+        clean = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', clndr_data)
+        start = clean.find('DaysOfWeek')
+        end = clean.find('VIEW(')
+        segment = clean[start:end] if start != -1 and end != -1 else clean
+        pattern = re.compile(r's\|(\d{2}):(\d{2})\|f\|(\d{2}):(\d{2})')
+        matches = list(pattern.finditer(segment))
+        if not matches:
+            return 8.0
+
+        total_hours = 0.0
+        for m in matches:
+            h1, m1, h2, m2 = map(int, m.groups())
+            hours = (h2 + m2 / 60) - (h1 + m1 / 60)
+            if hours > 0:
+                total_hours += hours
+
+        # Estimate days as half the number of work-period segments (2 segments ≈ 1 working day)
+        day_count = max(1, round(len(matches) / 2))
+        return total_hours / day_count
+    except Exception:
+        return 8.0
+
+def build_calendar_hours_map(calendar_tbl) -> dict:
+    if not calendar_tbl or not calendar_tbl.get('rows'):
+        return {}
+    hc = calendar_tbl['headers'] or []
+    cid_col = find_col(hc, ['clndr_id'])
+    data_col = find_col(hc, ['clndr_data'])
+    if not cid_col or not data_col:
+        return {}
+    out = {}
+    for r in calendar_tbl['rows']:
+        cid = r.get(cid_col)
+        hpd = parse_hours_from_clndr_data(r.get(data_col, ''))
+        try:
+            out[int(cid)] = hpd
+        except (ValueError, TypeError):
+            out[cid] = hpd
+    return out
 
 def process_task(tbl, cal_hours):
     if not tbl['rows'] or not tbl['headers']:
@@ -201,24 +193,25 @@ def process_taskpred(tbl, cal_hours, task_to_clndr):
         elif t == 'PR_SF': typ = 'Start to Finish'
         else: typ = 'Finish to Start'
         lag = safe_float(r.get(c_lag, 0) if c_lag else 0)
-        succ_clndr = task_to_clndr.get(succ)
-        pred_clndr = task_to_clndr.get(pred)
-        hpd = cal_hours.get(succ_clndr, cal_hours.get(pred_clndr, 8.0))
-        lag_days = lag / hpd if hpd else 0
         pred = r.get(c_pred, '') if c_pred else ''
         succ = r.get(c_succ, '') if c_succ else ''
+        succ_clndr = task_to_clndr.get(succ)
+        pred_clndr = task_to_clndr.get(pred)
+        hpd = cal_hours.get(safe_float(succ_clndr), cal_hours.get(safe_float(pred_clndr), 8.0))
+        lag_days = lag / hpd if hpd else 0
         if pred and succ:
             out.append({
                 'PredecessorActivityObjectId': pred,
                 'SuccessorActivityObjectId': succ,
                 'Type': typ,
-                'Lag': lag
-                ,'LagDays': lag_days
+                'Lag': lag,
+                'LagDays': lag_days
             })
     return pd.DataFrame(out)
 
 def convert_xer_to_csv(file_path, output_folder, file_identifier):
     try:
+        os.makedirs(output_folder, exist_ok=True)
         tables = {}
         curr = None
         headers = None
@@ -249,15 +242,11 @@ def convert_xer_to_csv(file_path, output_folder, file_identifier):
         task = tables.get('TASK', {'headers': [], 'rows': []})
         cal_tbl = tables.get('CALENDAR', {'headers': [], 'rows': []})
         pred = tables.get('TASKPRED', {'headers': [], 'rows': []})
-
-        # Build helpers
         cal_hours = build_calendar_hours_map(cal_tbl)
-        # map task_id -> clndr_id
         task_headers = task.get('headers', [])
         tid_col = find_col(task_headers, ['task_id'])
         tclndr_col = find_col(task_headers, ['clndr_id'])
         task_to_clndr = {r.get(tid_col): r.get(tclndr_col) for r in task.get('rows', []) if tid_col and tclndr_col}
-
         process_project(proj, output_folder, file_identifier)
         adf = process_task(task, cal_hours)
         rdf = process_taskpred(pred, cal_hours, task_to_clndr)
