@@ -1,0 +1,17 @@
+﻿#,Rule Name,Linkage / Logic,Purpose / Notes
+1,Activity ↔ Project,"TASK.proj_id → PROJECT.proj_id","Associates an activity with its project; pull PROJECT.proj_short_name (Id) and PROJECT.proj_name (Name)."
+2,Activity ↔ WBS,"TASK.wbs_id → PROJWBS.wbs_id","Groups activities under WBS; pull PROJWBS.wbs_code and PROJWBS.wbs_name."
+3,Activity ↔ Calendar,"TASK.clndr_id → CALENDAR.clndr_id","Assigns a work calendar; pull CALENDAR.clndr_name. HoursPerDay: use SCHEDOPTIONS.day_hr_cnt if present, else 8."
+4,Activity ↔ Predecessors,"TASKPRED.succ_task_id (or TASKPRED.task_id) → TASK.task_id","Finds predecessors of an activity; predecessor is TASKPRED.pred_task_id for the matching successor."
+5,Activity ↔ Successors,"TASKPRED.pred_task_id → TASK.task_id","Finds successors of an activity; successor is TASKPRED.succ_task_id (or TASKPRED.task_id) for the matching predecessor."
+6,Relationship Type,"TASKPRED.pred_type → {PR_FS, PR_SS, PR_FF, PR_SF}","Maps to dependency type: PR_FS=Finish to Start, PR_SS=Start to Start, PR_FF=Finish to Finish, PR_SF=Start to Finish."
+7,Relationship Lag,"TASKPRED.lag_hr_cnt","Lag stored in hours; convert to days by dividing by HoursPerDay if needed."
+8,Duration Conversion,"For TASK.target_drtn_hr_cnt, TASK.remain_drtn_hr_cnt, and derived actual duration → divide by HoursPerDay","Convert stored hours to calendar days using SCHEDOPTIONS.day_hr_cnt or default 8 hrs/day."
+9,Percent Complete,"TASK.phys_complete_pct","Value is 0–100; convert to 0–1 scale for application percent_complete."
+10,Date Rule: Not Started,"If TASK.status_code = TK_NotStart → use TASK.early_start_date & TASK.early_end_date (fallback to target_* dates)",Standard planned dates for unscheduled work.
+11,Date Rule: In Progress,"If TASK.status_code = TK_Active → use TASK.act_start_date & TASK.early_end_date",Actual start with forecast finish.
+12,Date Rule: Completed,"If TASK.status_code = TK_Complete → use TASK.act_start_date & TASK.act_end_date",Fully actualized dates.
+13,Constraint Mapping,"TASK.cstr_type → {CS_MSO, CS_MSOA, CS_MEO, CS_MEOB, ...}; date in TASK.cstr_date","Map examples: CS_MSO/CS_MSOA = Start On; CS_MEO/CS_MEOB = Finish On."
+14,Total Float,"TASK.total_float_hr_cnt","Total float in hours; convert to days if required."
+15,Project Data Date,"PROJECT.next_data_date (fallback PROJECT.last_schedule_date)",Used as the schedule data date in reporting.
+16,Project Must Finish By,"PROJECT.scd_end_date (or PROJECT.must_finish_by_date)",Project-level required finish (if set).
