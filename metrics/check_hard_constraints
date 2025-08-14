@@ -1,0 +1,12 @@
+import pandas as pd
+
+def check_hard_constraints(activities, date_format):
+    hard_constraints = ['Finish On']
+    constrained_tasks = activities[activities['ConstraintType'].isin(hard_constraints)].copy()
+    if constrained_tasks.empty:
+        return pd.DataFrame()
+    constrained_tasks['ConstraintDate_dt'] = pd.to_datetime(constrained_tasks['ConstraintDate'])
+    constrained_tasks.sort_values(by='ConstraintDate_dt', inplace=True)
+    constrained_tasks['ConstraintDate'] = constrained_tasks['ConstraintDate_dt'].dt.strftime(date_format)
+    report = constrained_tasks.reset_index()[['task_code', 'task_name', 'ConstraintType', 'ConstraintDate']]
+    return report.rename(columns={'task_code': 'Activity ID', 'task_name': 'Activity Name', 'ConstraintType': 'Constraint Type', 'ConstraintDate': 'Constraint Date'})

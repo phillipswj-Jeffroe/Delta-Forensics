@@ -1,0 +1,75 @@
+import pandas as pd
+
+def check_riding_data_date(activities, relationships, data_date, date_format):
+    if activities.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    not_started = activities[activities['status'] == 'Not Started'].copy()
+    riding_candidates = not_started[not_started['start_date'].dt.date == data_date.date()]
+
+    if riding_candidates.empty:
+        return pd.DataFrame(), pd.DataFrame()
+
+    all_activities_lookup = activities.reset_index().set_index('ObjectId')
+    completed_ids = set(all_activities_lookup[all_activities_lookup['status'] == 'Completed'].index)
+    
+    less_than_30, more_than_30 = [], []
+
+    for task_code, activity in riding_candidates.iterrows():
+        activity_obj_id = activity['ObjectId']
+        preds = relationships[relationships['SuccessorActivityObjectId'] == activity_obj_id]
+
+        if preds.empty:
+            report_data = {
+                'Activity ID': task_code,
+                'Activity Name': activity['task_name'],
+                'Start Date': activity['start_date'],
+                'Pred Activity ID': 'None',
+                'Last Pred Finish': 'N/A',
+                'Days Since Pred Finish': 'N/A'
+            }
+            more_than_30.append(report_data)
+            continue
+
+        pred_ids = set(preds['PredecessorActivityObjectId'])
+        if pred_ids.issubset(completed_ids):
+            valid_pred_ids = [pid for pid in pred_ids if pid in all_activities_lookup.index]
+            if not valid_pred_ids: continue
+            
+            pred_details = all_activities_lookup.loc[valid_pred_ids]
+            latest_pred_finish_date = pred_details['finish_date'].max()
+
+            if pd.notna(latest_pred_finish_date):
+                latest_pred_activity = pred_details[pred_details['finish_date'] == latest_pred_finish_date].iloc[0]
+                delta = data_date - latest_pred_finish_date
+                report_data = {
+                    'Activity ID': task_code,
+                    'Activity Name': activity['task_name'],
+                    'Start Date': activity['start_date'],
+                    'Pred Activity ID': latest_pred_activity['task_code'],
+                    'Last Pred Finish': latest_pred_finish_date,
+                    'Days Since Pred Finish': delta.days
+                }
+                if delta.days < 30:
+                    less_than_30.append(report_data)
+                else:
+                    more_than_30.append(report_data)
+
+    df_less = pd.DataFrame(less_than_30)
+    df_more = pd.DataFrame(more_than_30)
+    
+    column_order = ['Activity ID', 'Activity Name', 'Start Date', 'Pred Activity ID', 'Last Pred Finish', 'Days Since Pred Finish']
+
+    if not df_less.empty:
+        df_less['Start Date'] = pd.to_datetime(df_less['Start Date']).dt.strftime(date_format)
+        df_less['Last Pred Finish'] = pd.to_datetime(df_less['Last Pred Finish']).dt.strftime(date_format)
+        df_less = df_less[column_order].sort_values(by='Last Pred Finish')
+    if not df_more.empty:
+        df_more['Start Date'] = pd.to_datetime(df_more['Start Date']).dt.strftime(date_format)
+        df_more['Last Pred Finish_dt'] = pd.to_datetime(df_more['Last Pred Finish'], errors='coerce')
+        df_more = df_more.sort_values(by='Last Pred Finish_dt').drop(columns=['Last Pred Finish_dt'])
+        df_more['Last Pred Finish'] = pd.to_datetime(df_more['Last Pred Finish'], errors='coerce').dt.strftime(date_format)
+        df_more = df_more[column_order]
+        df_more.fillna('N/A', inplace=True)
+        
+    return df_less, df_more

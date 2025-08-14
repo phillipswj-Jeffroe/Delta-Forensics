@@ -1,0 +1,9 @@
+import pandas as pd
+
+def check_missing_actual_finishes(activities):
+    completed = activities[activities['status'] == 'Completed'].copy()
+    missing = completed[pd.isnull(completed['raw_actual_finish'])]
+    if missing.empty:
+        return pd.DataFrame()
+    report = missing.reset_index()[['task_code', 'task_name', 'status']]
+    return report.rename(columns={'task_code': 'Activity ID', 'task_name': 'Activity Name', 'status': 'Status'})

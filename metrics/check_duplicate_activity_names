@@ -1,0 +1,17 @@
+import pandas as pd
+
+def check_duplicate_activity_names(activities):
+    if activities.empty or 'task_name' not in activities.columns:
+        return pd.DataFrame()
+    
+    # Find all names that are duplicated
+    duplicated_names = activities[activities.duplicated(subset='task_name', keep=False)]['task_name']
+    
+    if duplicated_names.empty:
+        return pd.DataFrame()
+        
+    # Filter the original dataframe to get all activities with those names
+    result_df = activities[activities['task_name'].isin(duplicated_names)].copy()
+    
+    report = result_df.reset_index()[['task_code', 'task_name']]
+    return report.rename(columns={'task_code': 'Activity ID', 'task_name': 'Activity Name'}).sort_values(by=['Activity Name', 'Activity ID'])

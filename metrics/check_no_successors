@@ -1,0 +1,23 @@
+import pandas as pd
+
+def check_no_successors(activities, relationships, date_format):
+    if relationships.empty or 'Type' not in relationships.columns or 'PredecessorActivityObjectId' not in relationships.columns or activities.empty:
+        return pd.DataFrame()
+        
+    last_finish = activities['finish_date'].max()
+    last_tasks = set(activities[activities['finish_date'] == last_finish].index)
+    
+    driving_rels = relationships[relationships['Type'].isin(['Finish to Start', 'Finish to Finish'])]
+    predecessors = set(activities.reset_index()[activities.reset_index()['ObjectId'].isin(driving_rels['PredecessorActivityObjectId'])]['task_code'])
+    
+    to_check = set(activities.index) - last_tasks
+    missing_codes = list(to_check - predecessors)
+    
+    if not missing_codes:
+        return pd.DataFrame()
+        
+    result_df = activities.loc[missing_codes].copy().sort_values(by='finish_date')
+    result_df['finish_date'] = result_df['finish_date'].dt.strftime(date_format)
+    report = result_df.reset_index()[['task_code', 'task_name', 'finish_date']]
+    
+    return report.rename(columns={'task_code': 'Activity ID', 'task_name': 'Activity Name', 'finish_date': 'Finish Date'})

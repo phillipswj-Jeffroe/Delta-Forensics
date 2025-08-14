@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Delta Forensics</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        /* --- Splash Screen Styles --- */
+        .splash-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1060;
+            opacity: 1;
+            transition: opacity 0.5s ease-out;
+        }
+        .splash-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .splash-logo {
+            height: 150px;
+            margin-bottom: 1.5rem;
+        }
+        .splash-title {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #343a40;
+        }
+
+        /* --- Loading Spinner Styles --- */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.85);
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1070; /* Highest z-index */
+        }
+        .spinner {
+            border: 40px solid #e9ecef;
+            border-top: 40px solid #0d6efd;
+            border-radius: 50%;
+            width: 300px;
+            height: 300px;
+            animation: spin 1s linear infinite;
+        }
+        .loading-text {
+            margin-top: 2rem;
+            font-weight: 500;
+            font-size: 1.25rem;
+            color: #495057;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* --- Main Content Styles --- */
+        main {
+            display: none;
+        }
+        .navbar {
+            box-shadow: 0 2px 4px rgba(0,0,0,.1);
+        }
+        .logo {
+            height: 50px;
+        }
+        .settings-icon {
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #6c757d;
+        }
+        .card-header {
+            cursor: pointer;
+        }
+        .card-header h2 {
+            margin-bottom: 0;
+            font-size: 1.5rem;
+        }
+        .status-icon, .metric-name {
+            cursor: help;
+        }
+        .included-count {
+            color: #6c757d;
+        }
+        .table-responsive {
+            margin-top: 1rem;
+        }
+        .exclude-col {
+            width: 80px;
+            text-align: center;
+        }
+        .excluded-row {
+            background-color: #e9ecef !important;
+            text-decoration: line-through;
+            color: #6c757d;
+        }
+        .nav-tabs .nav-link {
+            color: #6c757d;
+        }
+        .nav-tabs .nav-link.active {
+            color: #0d6efd;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="splashScreen" class="splash-screen">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="Delta Forensics Logo" class="splash-logo">
+        <h1 class="splash-title">Delta Forensics</h1>
+    </div>
+
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p class="loading-text">Analyzing Schedules...</p>
+    </div>
+
+    <main id="mainContent">
+        <nav class="navbar navbar-expand-lg navbar-light bg-white sticky-top">
+            <div class="container-fluid">
+                <a class="navbar-brand d-flex align-items-center" href="#">
+                    <img src="{{ url_for('static', filename='logo.png') }}" alt="Delta Forensics Logo" class="logo">
+                    <span class="ms-2 fw-bold">Delta Forensics</span>
+                </a>
+                <div class="ms-auto">
+                    <i id="settingsBtn" class="bi bi-gear-fill settings-icon"></i>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container my-5">
+            <div class="card shadow-sm mb-5">
+                <div class="card-header bg-light">
+                    <h2 class="h5 mb-0">Schedule Analysis</h2>
+                </div>
+                <div class="card-body">
+                    <form id="uploadForm" method="post" enctype="multipart/form-data">
+                        <input type="hidden" id="dateFormatInput" name="date_format" value="%m/%d/%Y">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-md-6">
+                                <label for="target_file" class="form-label">Target Schedule (.xml or .xer)</label>
+                                <input class="form-control" type="file" name="target_file" id="target_file" accept=".xml,.xer" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="update_file" class="form-label">Update Schedule (.xml or .xer)</label>
+                                <input class="form-control" type="file" name="update_file" id="update_file" accept=".xml,.xer" required>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary mt-4">Analyze Schedules</button>
+                    </form>
+                </div>
+            </div>
+            <div id="resultsContainer">
+                </div>
+        </div>
+    </main>
+
+    <div class="modal fade" id="settingsModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Settings</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>This is where future settings will go.</p>
+                    <hr>
+                    <h6>Date Settings</h6>
+                    <label for="date_format_select" class="form-label">Report Date Format:</label>
+                    <select id="date_format_select" class="form-select">
+                        <option value="%m/%d/%Y">MM/DD/YYYY</option>
+                        <option value="%d-%b-%Y">DD-MON-YYYY</option>
+                        <option value="%Y-%m-%d">YYYY-MM-DD</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        window.addEventListener('load', function() {
+            const splashScreen = document.getElementById('splashScreen');
+            const mainContent = document.getElementById('mainContent');
+
+            if (!sessionStorage.getItem('splashShown')) {
+                setTimeout(() => {
+                    splashScreen.classList.add('hidden');
+                    mainContent.style.display = 'block';
+                    setTimeout(() => {
+                        splashScreen.style.display = 'none';
+                    }, 500);
+                    sessionStorage.setItem('splashShown', 'true');
+                }, 3000);
+            } else {
+                splashScreen.style.display = 'none';
+                mainContent.style.display = 'block';
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', function () {
+            
+            const uploadForm = document.getElementById('uploadForm');
+            if(uploadForm) {
+                uploadForm.addEventListener('submit', function(event) {
+                    event.preventDefault(); 
+                    const loadingOverlay = document.getElementById('loadingOverlay');
+                    loadingOverlay.style.display = 'flex';
+
+                    const formData = new FormData(this);
+
+                    fetch('/', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => response.text())
+                    .then(html => {
+                        const resultsContainer = document.getElementById('resultsContainer');
+                        resultsContainer.innerHTML = html;
+                        
+                        loadingOverlay.style.display = 'none';
+                        initializeReportInteractivity(); 
+                    })
+                    .catch(error => {
+                        console.error('Error submitting form:', error);
+                        loadingOverlay.style.display = 'none';
+                        alert('An error occurred during analysis.');
+                    });
+                });
+            }
+            
+            function initializeReportInteractivity() {
+                const settingsModalEl = document.getElementById('settingsModal');
+                if (!settingsModalEl) return;
+                
+                const settingsModal = new bootstrap.Modal(settingsModalEl);
+                const settingsBtn = document.getElementById("settingsBtn");
+                const dateFormatSelect = document.getElementById("date_format_select");
+                const dateFormatInput = document.getElementById("dateFormatInput");
+
+                if(settingsBtn) { 
+                    settingsBtn.onclick = function() { 
+                        settingsModal.show();
+                    } 
+                }
+                
+                if(dateFormatSelect && dateFormatInput) { 
+                    dateFormatSelect.onchange = function() { 
+                        dateFormatInput.value = this.value; 
+                    } 
+                }
+
+                function updateSectionCount(table) {
+                    const section = table.closest('.report-section');
+                    if (!section) return;
+                    const countSpan = section.querySelector('.included-count');
+                    const totalRows = table.querySelectorAll('tbody tr').length;
+                    const excludedRows = table.querySelectorAll('tbody .row-toggle:checked').length;
+                    countSpan.textContent = `(${totalRows - excludedRows})`;
+                }
+
+                document.querySelectorAll('.section-toggle').forEach(function (headerCheckbox) {
+                    headerCheckbox.addEventListener('change', function () {
+                        const table = this.closest('table');
+                        table.querySelectorAll('.row-toggle').forEach(function (rowCheckbox) {
+                            rowCheckbox.checked = headerCheckbox.checked;
+                            rowCheckbox.closest('tr').classList.toggle('excluded-row', rowCheckbox.checked);
+                        });
+                        updateSectionCount(table);
+                    });
+                });
+
+                document.querySelectorAll('.row-toggle').forEach(function (rowCheckbox) {
+                    rowCheckbox.addEventListener('change', function () {
+                        this.closest('tr').classList.toggle('excluded-row', this.checked);
+                        const table = this.closest('table');
+                        const headerCheckbox = table.querySelector('.section-toggle');
+                        let allChecked = true;
+                        table.querySelectorAll('.row-toggle').forEach(function(rc) {
+                            if (!rc.checked) allChecked = false;
+                        });
+                        if(headerCheckbox) headerCheckbox.checked = allChecked;
+                        updateSectionCount(table);
+                    });
+                });
+
+                const exportBtn = document.getElementById("exportBtn");
+                if (exportBtn) {
+                    exportBtn.addEventListener('click', function () {
+                        const reportContainer = document.getElementById('reportContainer');
+                        if (!reportContainer) return;
+                        
+                        const printableDiv = document.createElement('div');
+                        printableDiv.innerHTML = reportContainer.innerHTML;
+
+                        const originalRows = Array.from(reportContainer.querySelectorAll('tbody tr'));
+                        const clonedRows = Array.from(printableDiv.querySelectorAll('tbody tr'));
+
+                        const rowsToRemove = [];
+                        originalRows.forEach((row, index) => {
+                            const checkbox = row.querySelector('.row-toggle');
+                            if (checkbox && checkbox.checked) {
+                                if (clonedRows[index]) {
+                                    rowsToRemove.push(clonedRows[index]);
+                                }
+                            }
+                        });
+                        
+                        rowsToRemove.forEach(row => row.remove());
+
+                        printableDiv.querySelectorAll('.report-section').forEach(section => {
+                            const countSpan = section.querySelector('.included-count');
+                            if (countSpan && countSpan.textContent.trim() === '(0)') {
+                                section.remove();
+                            }
+                        });
+
+                        printableDiv.querySelectorAll('.exclude-col').forEach(el => el.remove());
+                        
+                         printableDiv.querySelectorAll('.report-section').forEach(section => {
+                             const table = section.querySelector('table');
+                             if (table && table.querySelectorAll('tbody tr').length === 0) {
+                                 section.remove();
+                             }
+                         });
+                         
+                         printableDiv.querySelector('.card.shadow-sm.mb-5')?.remove();
+                         printableDiv.querySelector('.d-flex.justify-content-end')?.remove();
+                         printableDiv.querySelector('.nav-tabs')?.remove();
+                         printableDiv.querySelector('.tab-content .tab-pane:not(.active)')?.remove();
+
+
+                        let printableReport = '<html><head><title>Delta Forensics Report</title>';
+                        printableReport += '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">';
+                        printableReport += '<style> body { font-family: sans-serif; } .report-section h5 { margin-top: 2rem; border-bottom: 2px solid #dee2e6; padding-bottom: .5rem; } table { page-break-inside: auto; } tr { page-break-inside: avoid; page-break-after: auto; } thead { display: table-header-group; } </style>';
+                        printableReport += '</head><body><div class="container">';
+                        printableReport += printableDiv.innerHTML;
+                        printableReport += '</div></body></html>';
+
+                        const printWindow = window.open('', '', 'height=800,width=1200');
+                        printWindow.document.write(printableReport);
+                        printWindow.document.close();
+                        
+                        setTimeout(() => {
+                           printWindow.print();
+                        }, 500);
+                    });
+                }
+            }
+            
+            initializeReportInteractivity();
+        });
+    </script>
+    </body>
+</html>

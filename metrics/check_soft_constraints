@@ -1,0 +1,14 @@
+import pandas as pd
+
+def check_soft_constraints(activities, date_format):
+    soft_constraints = ['Start On or After', 'Finish On or Before', 'As Late As Possible']
+    constrained_tasks = activities[activities['ConstraintType'].isin(soft_constraints)].copy()
+    if constrained_tasks.empty:
+        return pd.DataFrame()
+    alap_mask = (constrained_tasks['ConstraintType'] == 'As Late As Possible') & (pd.isnull(constrained_tasks['ConstraintDate']))
+    constrained_tasks.loc[alap_mask, 'ConstraintDate'] = constrained_tasks.loc[alap_mask, 'finish_date']
+    constrained_tasks['ConstraintDate_dt'] = pd.to_datetime(constrained_tasks['ConstraintDate'])
+    constrained_tasks.sort_values(by='ConstraintDate_dt', inplace=True)
+    constrained_tasks['ConstraintDate'] = constrained_tasks['ConstraintDate_dt'].dt.strftime(date_format)
+    report = constrained_tasks.reset_index()[['task_code', 'task_name', 'ConstraintType', 'ConstraintDate']]
+    return report.rename(columns={'task_code': 'Activity ID', 'task_name': 'Activity Name', 'ConstraintType': 'Constraint Type', 'ConstraintDate': 'Constraint Date'})

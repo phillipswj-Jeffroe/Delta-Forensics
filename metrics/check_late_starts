@@ -1,0 +1,11 @@
+import pandas as pd
+
+def check_late_starts(activities, data_date, date_format):
+    not_started = activities[activities['status'] == 'Not Started'].copy()
+    late_starts = not_started[not_started['start_date'].dt.date < data_date.date()]
+    if late_starts.empty:
+        return pd.DataFrame()
+    late_starts = late_starts.sort_values(by='start_date')
+    late_starts['start_date'] = late_starts['start_date'].dt.strftime(date_format)
+    report = late_starts.reset_index()[['task_code', 'task_name', 'start_date']]
+    return report.rename(columns={'task_code': 'Activity ID', 'task_name': 'Activity Name', 'start_date': 'Start Date'})

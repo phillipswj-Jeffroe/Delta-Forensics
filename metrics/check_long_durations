@@ -1,0 +1,9 @@
+import pandas as pd
+
+def check_long_durations(activities, days_threshold=30):
+    hours_threshold = days_threshold * 8
+    long_tasks = activities[activities['planned_duration_hours'] > hours_threshold]
+    if long_tasks.empty:
+        return pd.DataFrame()
+    report = long_tasks.reset_index()[['task_code', 'task_name', 'planned_duration_hours']]
+    return report.rename(columns={'task_code': 'Activity ID', 'task_name': 'Activity Name', 'planned_duration_hours': 'Planned Duration (h)'})

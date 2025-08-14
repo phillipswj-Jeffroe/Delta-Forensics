@@ -1,0 +1,9 @@
+import pandas as pd
+
+def check_missing_actual_starts(activities):
+    in_progress = activities[activities['status'] == 'In Progress'].copy()
+    missing = in_progress[pd.isnull(in_progress['raw_actual_start'])]
+    if missing.empty:
+        return pd.DataFrame()
+    report = missing.reset_index()[['task_code', 'task_name', 'status']]
+    return report.rename(columns={'task_code': 'Activity ID', 'task_name': 'Activity Name', 'status': 'Status'})

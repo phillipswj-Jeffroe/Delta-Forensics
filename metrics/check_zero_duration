@@ -1,0 +1,8 @@
+import pandas as pd
+
+def check_zero_duration(activities):
+    zero_tasks = activities[(~activities['activity_type'].isin(['Start Milestone', 'Finish Milestone', 'Level of Effort', 'WBS Summary'])) & (activities['planned_duration_hours'] == 0)]
+    if zero_tasks.empty:
+        return pd.DataFrame()
+    report = zero_tasks.reset_index()[['task_code', 'task_name', 'activity_type']]
+    return report.rename(columns={'task_code': 'Activity ID', 'task_name': 'Activity Name', 'activity_type': 'Activity Type'})

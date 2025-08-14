@@ -1,0 +1,16 @@
+import pandas as pd
+
+def check_negative_lag(activities, relationships):
+    if 'Lag' not in relationships.columns or relationships.empty:
+        return pd.DataFrame()
+        
+    negative_rels = relationships[relationships['Lag'] < 0].copy()
+    
+    if negative_rels.empty:
+        return pd.DataFrame()
+        
+    id_map = activities.reset_index().set_index('ObjectId')['task_code']
+    negative_rels['Predecessor'] = negative_rels['PredecessorActivityObjectId'].map(id_map)
+    negative_rels['Successor'] = negative_rels['SuccessorActivityObjectId'].map(id_map)
+    
+    return negative_rels[['Predecessor', 'Successor', 'Type', 'Lag']]

@@ -1,0 +1,16 @@
+import pandas as pd
+
+def check_start_to_finish_logic(activities, relationships):
+    if 'Type' not in relationships.columns or relationships.empty:
+        return pd.DataFrame()
+        
+    sf_rels = relationships[relationships['Type'] == 'Start to Finish'].copy()
+    
+    if sf_rels.empty:
+        return pd.DataFrame()
+        
+    id_map = activities.reset_index().set_index('ObjectId')['task_code']
+    sf_rels['Predecessor'] = sf_rels['PredecessorActivityObjectId'].map(id_map)
+    sf_rels['Successor'] = sf_rels['SuccessorActivityObjectId'].map(id_map)
+    
+    return sf_rels[['Predecessor', 'Successor', 'Lag']]
