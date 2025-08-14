@@ -66,3 +66,9 @@ Thumbs.db
 # Microsoft Office temporary files
 ~$*.docx
 ~$*.xlsx
+
+# Generated analysis outputs
+outputs/
+
+# Windows shortcuts
+*.lnk
