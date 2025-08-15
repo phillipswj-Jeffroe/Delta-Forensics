@@ -44,6 +44,29 @@ def process_project(tbl, out_dir, ident):
     with open(os.path.join(out_dir, f'{ident}_datadate.txt'), 'w') as f:
         f.write(datadate or '')
 
+def process_wbs(tbl, out_dir, ident):
+    """
+    Extract the project WBS hierarchy and write it to CSV so the UI can
+    build a project->WBS->Activity tree.
+    """
+    if not tbl or not tbl.get('rows'):
+        return
+    hc = tbl.get('headers') or []
+    c_id = find_col(hc, ['wbs_id'])
+    c_parent = find_col(hc, ['parent_wbs_id', 'parent_id'])
+    c_code = find_col(hc, ['wbs_short_name', 'wbs_code', 'wbs_id'])
+    c_name = find_col(hc, ['wbs_name', 'name'])
+    rows = []
+    for r in tbl.get('rows'):
+        rows.append({
+            'WBSId': r.get(c_id, '') if c_id else '',
+            'ParentWBSId': r.get(c_parent, '') if c_parent else '',
+            'WBSCode': r.get(c_code, '') if c_code else '',
+            'WBSName': r.get(c_name, '') if c_name else ''
+        })
+    if rows:
+        pd.DataFrame(rows).to_csv(os.path.join(out_dir, f'{ident}_wbs.csv'), index=False)
+
 def parse_hours_from_clndr_data(clndr_data: str) -> float:
     if not clndr_data:
         return 8.0
@@ -112,6 +135,7 @@ def process_task(tbl, cal_hours):
     c_cstr = find_col(hc, ['cstr_type'])
     c_cdate = find_col(hc, ['cstr_date'])
     c_tflo = find_col(hc, ['total_float_hr_cnt'])
+    c_wbs = find_col(hc, ['wbs_id'])
     out = []
     for r in tbl['rows']:
         sc = (r.get(c_status, '') if c_status else '')
@@ -166,7 +190,8 @@ def process_task(tbl, cal_hours):
             'ConstraintDate': r.get(c_cdate, '') if c_cdate else '',
             'TotalFloat': safe_float(r.get(c_tflo, 0) if c_tflo else 0),
             'TotalFloatDays': (safe_float(r.get(c_tflo, 0) if c_tflo else 0) / hpd) if hpd else 0,
-            'hours_per_day': hpd
+            'hours_per_day': hpd,
+            'wbs_id': r.get(c_wbs, '') if c_wbs else ''
         })
     return pd.DataFrame(out)
 
@@ -242,6 +267,10 @@ def convert_xer_to_csv(file_path, output_folder, file_identifier):
         task = tables.get('TASK', {'headers': [], 'rows': []})
         cal_tbl = tables.get('CALENDAR', {'headers': [], 'rows': []})
         pred = tables.get('TASKPRED', {'headers': [], 'rows': []})
+        # --- WBS ---
+        projwbs = tables.get('PROJWBS', {'headers': [], 'rows': []})
+        process_wbs(projwbs, output_folder, file_identifier)
+
         cal_hours = build_calendar_hours_map(cal_tbl)
         task_headers = task.get('headers', [])
         tid_col = find_col(task_headers, ['task_id'])

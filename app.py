@@ -11,6 +11,7 @@ from config import Config
 from parser import parse_csv_data
 from comparator import find_changes
 from diagnostics import run_all_checks
+import pandas as pd
 
 app = Flask(__name__)
 # Load all configuration values (SECRET_KEY, MAX_CONTENT_LENGTH, etc.)
@@ -50,6 +51,31 @@ TOOLTIPS = {
         "Must Finish By Date Set": "Indicates that a 'Must Finish By' constraint has been set at the project level. This is a critical constraint that can override all other logic in the schedule."
     }
 }
+
+def df_to_records(df):
+    """Convert DataFrame to list-of-dict with datetime safe strings."""
+    try:
+        if df is None or df.empty:
+            return []
+        df2 = df.copy()
+        if df2.index.name:
+            df2 = df2.reset_index()
+        for col in df2.columns:
+            if str(df2[col].dtype).startswith('datetime64'):
+                df2[col] = df2[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+        return df2.to_dict(orient='records')
+    except Exception:
+        return []
+
+def make_schedule_json(data: dict) -> dict:
+    """Package parsed schedule pieces into JSON-safe structure."""
+    return {
+        'project': data.get('project', {}),
+        'activities': df_to_records(data.get('activities')),
+        'relationships': df_to_records(data.get('relationships')),
+        'expenses': df_to_records(data.get('expenses')),
+        'wbs': df_to_records(data.get('wbs')),
+    }
 
 def allowed_file(filename):
     return (
@@ -100,13 +126,20 @@ def upload_and_compare():
                         diagnostics_report = run_all_checks(update_data, date_format)
                         target_project_data = target_data.get('project', {})
                         update_project_data = update_data.get('project', {})
+
+                        schedule_json = {
+                            'target': make_schedule_json(target_data),
+                            'update': make_schedule_json(update_data),
+                        }
                         
                         return render_template('_reports.html', 
                                                comparison_report=comparison_report, 
                                                diagnostics_report=diagnostics_report,
                                                target_filename=target_filename, update_filename=update_filename,
                                                target_project_data=target_project_data, update_project_data=update_project_data,
-                                               tooltips=TOOLTIPS)
+                                               tooltips=TOOLTIPS,
+                                               schedule_json=schedule_json,
+                                               date_format=date_format)
                     else:
                         return "Error processing the converted CSV data.", 500
                 else:
