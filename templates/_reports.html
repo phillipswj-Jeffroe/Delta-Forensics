@@ -169,25 +169,37 @@
                   </div>
                 </div>
 
-                <!-- Tree container -->
-                <div id="scheduleTreeContainer" class="table-responsive"></div>
+                <!-- Two-pane layout -->
+                <div class="d-flex gap-2">
+                  <div id="treePane" class="flex-fill" style="max-width:55%; overflow:auto; border-right:1px solid #e9ecef;">
+                    <div id="scheduleTreeContainer" class="table-responsive"></div>
+                  </div>
+                  <div id="ganttPane" class="flex-fill" style="overflow:auto;">
+                    <div id="ganttCanvas"></div>
+                  </div>
+                </div>
               </div>
             </div>
 
             <!-- Styles specific to tree / gantt -->
             <style>
               .tree-toggle { cursor: pointer; user-select: none; }
-              .gantt-cell { min-width: 400px; width: 40vw; }
-              .gantt-bar { height: 12px; background:#0d6efd; border-radius:3px; }
               .muted { color:#6c757d; }
               .child-row { display:none; }
+              .gantt .bar.hidden-task { display:none; }
             </style>
+
+            <!-- Frappe Gantt CDN includes -->
+            <link rel="stylesheet" href="https://unpkg.com/frappe-gantt/dist/frappe-gantt.css">
+            <script src="https://unpkg.com/frappe-gantt/dist/frappe-gantt.umd.js"></script>
 
             <!-- Hierarchical viewer script -->
             <script>
             (function(){
               const SCHEDULE = {{ schedule_json | tojson }};
               const parseDate = s => s ? new Date(s.replace(' ','T')) : null;
+              let ganttChart = null;
+              let isScrolling = false;
 
               /* helpers */
               function getChecked(cls){return Array.from(document.querySelectorAll('.'+cls+':checked')).map(x=>x.value);}
@@ -217,12 +229,6 @@
                 if(!min) min=new Date(); if(!max) max=new Date();
                 return {min,max,span:max-min||1};
               }
-              function ganttBar(s,f,rng){
-                if(!s||!f||s>f) return '';
-                const left=((s-rng.min)/rng.span)*500;
-                const width=((f-s)/rng.span)*500;
-                return `<div style=\"position:relative;height:14px\"><div class=\"gantt-bar\" style=\"position:absolute;left:${left}px;width:${width}px\"></div></div>`;
-              }
 
               /* main render */
               function render(){
@@ -232,6 +238,8 @@
                 const rng=dateRange(data.activities);
                 const aCols=getChecked('act-col'), rCols=getChecked('rel-col');
                 const rows=[];
+                const orderedActs = [];
+                
                 rows.push(`<tr class=\"fw-bold\"><td colspan=\"999\"><span class=\"tree-toggle\" data-target=\"root\">▶</span> ${data.project.Name||'Project'}</td></tr>`);
 
                 /* WBS hierarchy */
@@ -247,7 +255,10 @@
                   (maps.actByWbs.get(node.WBSId)||[]).forEach(a=>{
                     const aid=`a_${a.ObjectId}`;
                     rows.push(`<tr data-parent=\"${wid}\" class=\"child-row\"><td>${'&nbsp;'.repeat((level+1)*4)}<span class=\"tree-toggle\" data-target=\"${aid}\">▶</span> ${a.task_code}</td>${
-                      aCols.map(c=>`<td>${({'Activity ID':a.task_code,'Activity Name':a.task_name,'Status':a.status,'Original Duration':a.planned_duration_days,'Start Date':a.start_date,'Finish Date':a.finish_date}[c]||'')}</td>`).join('')}<td class=\"gantt-cell\">${ganttBar(parseDate(a.start_date),parseDate(a.finish_date),rng)}</td></tr>`);
+                      aCols.map(c=>`<td>${({'Activity ID':a.task_code,'Activity Name':a.task_name,'Status':a.status,'Original Duration':a.planned_duration_days,'Start Date':a.start_date,'Finish Date':a.finish_date}[c]||'')}</td>`).join('')}</tr>`);
+                    
+                    // Add to ordered activities for Gantt
+                    orderedActs.push(a);
 
                     /* relationships */
                     const listPairs=[['Predecessors',maps.pred.get(String(a.ObjectId))||[],'PredecessorActivityObjectId'],['Successors',maps.succ.get(String(a.ObjectId))||[],'SuccessorActivityObjectId']];
@@ -257,7 +268,7 @@
                       arr.forEach(rel=>{
                         const otherAct=maps.actByObj.get(String(rel[field]))||{};
                         rows.push(`<tr data-parent=\"${aid}\" class=\"child-row\"><td>${'&nbsp;'.repeat((level+3)*4)}</td>${
-                          rCols.map(c=>`<td>${({'Activity ID':otherAct.task_code,'Activity Name':otherAct.task_name,'Status':otherAct.status,'Relationship Type':rel.Type,'Start Date':otherAct.start_date,'Finish Date':otherAct.finish_date,'Lag':rel.LagDays||rel.Lag}[c]||'')}</td>`).join('')}<td></td></tr>`);
+                          rCols.map(c=>`<td>${({'Activity ID':otherAct.task_code,'Activity Name':otherAct.task_name,'Status':otherAct.status,'Relationship Type':rel.Type,'Start Date':otherAct.start_date,'Finish Date':otherAct.finish_date,'Lag':rel.LagDays||rel.Lag}[c]||'')}</td>`).join('')}</tr>`);
                       });
                     });
                   });
@@ -265,7 +276,7 @@
                 }
                 roots.forEach(r=>addWbs(r,0,'root'));
 
-                const header=`<tr><th>Hierarchy</th>${aCols.map(c=>`<th>${c}</th>`).join('')}<th>Gantt</th></tr>`;
+                const header=`<tr><th>Hierarchy</th>${aCols.map(c=>`<th>${c}</th>`).join('')}</tr>`;
                 document.getElementById('scheduleTreeContainer').innerHTML=`<table class=\"table table-sm\">${header}${rows.join('')}</table>`;
 
                 /* toggle logic */
@@ -276,7 +287,80 @@
                     document.querySelectorAll(`[data-parent='${tgt}']`).forEach(r=>r.classList.toggle('child-row'));
                   };
                 });
+                
+                // Build Frappe Gantt tasks
+                const tasks = [];
+                const minDate = rng.min;
+                const maxDate = rng.max;
+                
+                // Add bounding tasks for scale
+                tasks.push({
+                  id: 'bounds_start',
+                  name: 'Start Bound',
+                  start: minDate,
+                  end: new Date(minDate.getTime() + 3600000), // 1 hour later
+                  progress: 0,
+                  custom_class: 'hidden-task'
+                });
+                
+                tasks.push({
+                  id: 'bounds_end',
+                  name: 'End Bound',
+                  start: new Date(maxDate.getTime() - 3600000), // 1 hour before
+                  end: maxDate,
+                  progress: 0,
+                  custom_class: 'hidden-task'
+                });
+                
+                // Add activity tasks
+                orderedActs.forEach(a => {
+                  const start = parseDate(a.start_date);
+                  const end = parseDate(a.finish_date);
+                  
+                  if (start && end && start < end) {
+                    tasks.push({
+                      id: String(a.ObjectId),
+                      name: a.task_code + ': ' + a.task_name,
+                      start: start,
+                      end: end,
+                      progress: a.percent_complete || 0,
+                      status: a.status
+                    });
+                  }
+                });
+                
+                // Create Gantt chart
+                document.getElementById('ganttCanvas').innerHTML = '';
+                if (tasks.length > 0) {
+                  ganttChart = new Gantt('#ganttCanvas', tasks, {
+                    view_mode: 'Day',
+                    bar_height: 18,
+                    padding: 6,
+                    header_height: 36
+                  });
+                }
+                
+                // Synchronize scrolling
+                const treePane = document.getElementById('treePane');
+                const ganttPane = document.getElementById('ganttPane');
+                
+                treePane.onscroll = function() {
+                  if (!isScrolling) {
+                    isScrolling = true;
+                    ganttPane.scrollTop = treePane.scrollTop;
+                    setTimeout(() => { isScrolling = false; }, 10);
+                  }
+                };
+                
+                ganttPane.onscroll = function() {
+                  if (!isScrolling) {
+                    isScrolling = true;
+                    treePane.scrollTop = ganttPane.scrollTop;
+                    setTimeout(() => { isScrolling = false; }, 10);
+                  }
+                };
               }
+              
               /* events */
               ['schedTarget','schedUpdate'].forEach(id=>document.getElementById(id).addEventListener('change',render));
               document.querySelectorAll('.act-col,.rel-col,.exp-col').forEach(cb=>cb.addEventListener('change',render));
