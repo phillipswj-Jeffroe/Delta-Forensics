@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import re
 
 def safe_float(v, d=0.0):
     try:
@@ -21,7 +22,7 @@ def find_col(headers, names):
     return None
 
 def process_project(tbl, out_dir, ident):
-    if not tbl['rows']:
+    if not tbl or not tbl.get('rows'):
         return
     r = tbl['rows'][0]
     pid = find_col(tbl['headers'], ['proj_id'])
@@ -43,7 +44,74 @@ def process_project(tbl, out_dir, ident):
     with open(os.path.join(out_dir, f'{ident}_datadate.txt'), 'w') as f:
         f.write(datadate or '')
 
-def process_task(tbl):
+def process_wbs(tbl, out_dir, ident):
+    """
+    Extract the project WBS hierarchy and write it to CSV so the UI can
+    build a project->WBS->Activity tree.
+    """
+    if not tbl or not tbl.get('rows'):
+        return
+    hc = tbl.get('headers') or []
+    c_id = find_col(hc, ['wbs_id'])
+    c_parent = find_col(hc, ['parent_wbs_id', 'parent_id'])
+    c_code = find_col(hc, ['wbs_short_name', 'wbs_code', 'wbs_id'])
+    c_name = find_col(hc, ['wbs_name', 'name'])
+    rows = []
+    for r in tbl.get('rows'):
+        rows.append({
+            'WBSId': r.get(c_id, '') if c_id else '',
+            'ParentWBSId': r.get(c_parent, '') if c_parent else '',
+            'WBSCode': r.get(c_code, '') if c_code else '',
+            'WBSName': r.get(c_name, '') if c_name else ''
+        })
+    if rows:
+        pd.DataFrame(rows).to_csv(os.path.join(out_dir, f'{ident}_wbs.csv'), index=False)
+
+def parse_hours_from_clndr_data(clndr_data: str) -> float:
+    if not clndr_data:
+        return 8.0
+    try:
+        clean = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', clndr_data)
+        start = clean.find('DaysOfWeek')
+        end = clean.find('VIEW(')
+        segment = clean[start:end] if start != -1 and end != -1 else clean
+        pattern = re.compile(r's\|(\d{2}):(\d{2})\|f\|(\d{2}):(\d{2})')
+        matches = list(pattern.finditer(segment))
+        if not matches:
+            return 8.0
+
+        total_hours = 0.0
+        for m in matches:
+            h1, m1, h2, m2 = map(int, m.groups())
+            hours = (h2 + m2 / 60) - (h1 + m1 / 60)
+            if hours > 0:
+                total_hours += hours
+
+        # Estimate days as half the number of work-period segments (2 segments ≈ 1 working day)
+        day_count = max(1, round(len(matches) / 2))
+        return total_hours / day_count
+    except Exception:
+        return 8.0
+
+def build_calendar_hours_map(calendar_tbl) -> dict:
+    if not calendar_tbl or not calendar_tbl.get('rows'):
+        return {}
+    hc = calendar_tbl['headers'] or []
+    cid_col = find_col(hc, ['clndr_id'])
+    data_col = find_col(hc, ['clndr_data'])
+    if not cid_col or not data_col:
+        return {}
+    out = {}
+    for r in calendar_tbl['rows']:
+        cid = r.get(cid_col)
+        hpd = parse_hours_from_clndr_data(r.get(data_col, ''))
+        try:
+            out[int(cid)] = hpd
+        except (ValueError, TypeError):
+            out[cid] = hpd
+    return out
+
+def process_task(tbl, cal_hours):
     if not tbl['rows'] or not tbl['headers']:
         return pd.DataFrame()
     hc = tbl['headers']
@@ -59,6 +127,7 @@ def process_task(tbl):
     c_act_end = find_col(hc, ['act_end_date'])
     c_remain = find_col(hc, ['remain_drtn_hr_cnt'])
     c_pct = find_col(hc, ['phys_complete_pct'])
+    c_clndr = find_col(hc, ['clndr_id'])
     c_es = find_col(hc, ['early_start_date'])
     c_ef = find_col(hc, ['early_end_date'])
     c_ts = find_col(hc, ['target_start_date'])
@@ -66,6 +135,7 @@ def process_task(tbl):
     c_cstr = find_col(hc, ['cstr_type'])
     c_cdate = find_col(hc, ['cstr_date'])
     c_tflo = find_col(hc, ['total_float_hr_cnt'])
+    c_wbs = find_col(hc, ['wbs_id'])
     out = []
     for r in tbl['rows']:
         sc = (r.get(c_status, '') if c_status else '')
@@ -89,6 +159,9 @@ def process_task(tbl):
         asd = (r.get(c_act_start, '') if c_act_start else '')
         afd = (r.get(c_act_end, '') if c_act_end else '')
         rd = safe_float(r.get(c_remain, 0) if c_remain else 0)
+        hpd = 8.0
+        if c_clndr:
+            hpd = cal_hours.get(safe_float(r.get(c_clndr)), cal_hours.get(r.get(c_clndr), 8.0))
         if aw > 0: ad = aw
         elif asd and afd: ad = 0
         elif td > 0 and rd > 0: ad = td - rd
@@ -103,8 +176,11 @@ def process_task(tbl):
             'status': s,
             'activity_type': at,
             'planned_duration_hours': td,
+            'planned_duration_days': td / hpd if hpd else 0,
             'actual_duration_hours': ad,
+            'actual_duration_days': ad / hpd if hpd else 0,
             'remaining_duration_hours': rd,
+            'remaining_duration_days': rd / hpd if hpd else 0,
             'percent_complete': pc,
             'raw_start_date': rs,
             'raw_finish_date': rf,
@@ -112,11 +188,14 @@ def process_task(tbl):
             'raw_actual_finish': afd,
             'ConstraintType': ctype,
             'ConstraintDate': r.get(c_cdate, '') if c_cdate else '',
-            'TotalFloat': safe_float(r.get(c_tflo, 0) if c_tflo else 0)
+            'TotalFloat': safe_float(r.get(c_tflo, 0) if c_tflo else 0),
+            'TotalFloatDays': (safe_float(r.get(c_tflo, 0) if c_tflo else 0) / hpd) if hpd else 0,
+            'hours_per_day': hpd,
+            'wbs_id': r.get(c_wbs, '') if c_wbs else ''
         })
     return pd.DataFrame(out)
 
-def process_taskpred(tbl):
+def process_taskpred(tbl, cal_hours, task_to_clndr):
     if not tbl['rows'] or not tbl['headers']:
         return pd.DataFrame()
     hc = tbl['headers']
@@ -141,17 +220,23 @@ def process_taskpred(tbl):
         lag = safe_float(r.get(c_lag, 0) if c_lag else 0)
         pred = r.get(c_pred, '') if c_pred else ''
         succ = r.get(c_succ, '') if c_succ else ''
+        succ_clndr = task_to_clndr.get(succ)
+        pred_clndr = task_to_clndr.get(pred)
+        hpd = cal_hours.get(safe_float(succ_clndr), cal_hours.get(safe_float(pred_clndr), 8.0))
+        lag_days = lag / hpd if hpd else 0
         if pred and succ:
             out.append({
                 'PredecessorActivityObjectId': pred,
                 'SuccessorActivityObjectId': succ,
                 'Type': typ,
-                'Lag': lag
+                'Lag': lag,
+                'LagDays': lag_days
             })
     return pd.DataFrame(out)
 
 def convert_xer_to_csv(file_path, output_folder, file_identifier):
     try:
+        os.makedirs(output_folder, exist_ok=True)
         tables = {}
         curr = None
         headers = None
@@ -180,10 +265,20 @@ def convert_xer_to_csv(file_path, output_folder, file_identifier):
                     headers = None
         proj = tables.get('PROJECT', {'headers': [], 'rows': []})
         task = tables.get('TASK', {'headers': [], 'rows': []})
+        cal_tbl = tables.get('CALENDAR', {'headers': [], 'rows': []})
         pred = tables.get('TASKPRED', {'headers': [], 'rows': []})
+        # --- WBS ---
+        projwbs = tables.get('PROJWBS', {'headers': [], 'rows': []})
+        process_wbs(projwbs, output_folder, file_identifier)
+
+        cal_hours = build_calendar_hours_map(cal_tbl)
+        task_headers = task.get('headers', [])
+        tid_col = find_col(task_headers, ['task_id'])
+        tclndr_col = find_col(task_headers, ['clndr_id'])
+        task_to_clndr = {r.get(tid_col): r.get(tclndr_col) for r in task.get('rows', []) if tid_col and tclndr_col}
         process_project(proj, output_folder, file_identifier)
-        adf = process_task(task)
-        rdf = process_taskpred(pred)
+        adf = process_task(task, cal_hours)
+        rdf = process_taskpred(pred, cal_hours, task_to_clndr)
         if not adf.empty:
             adf.to_csv(os.path.join(output_folder, f'{file_identifier}_activities.csv'), index=False)
         if not rdf.empty:

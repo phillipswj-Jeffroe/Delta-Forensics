@@ -1,0 +1,15 @@
+﻿#,Rule Name,Linkage / Logic,Purpose / Notes
+1,Activity ↔ Project,<Activity><ProjectObjectId> → <Project><ObjectId>,Associates an activity with its project; pull <Project><Id> and <Project><Name>.
+2,Activity ↔ WBS,<Activity><WBSObjectId> → <WBS><ObjectId>,Groups activities under WBS; pull <WBS><Code> and <WBS><Name>.
+3,Activity ↔ Calendar,<Activity><CalendarObjectId> → <Calendar><ObjectId>,"Assigns a work calendar; pull <Calendar><Name>, <HoursPerDay>, <HolidayOrException>."
+4,Activity ↔ Predecessors,<Relationship><SuccessorActivityObjectId> → <Activity><ObjectId>,Finds predecessors of an activity.
+5,Activity ↔ Successors,<Relationship><PredecessorActivityObjectId> → <Activity><ObjectId>,Finds successors of an activity.
+6,Relationship Type,<Relationship><Type>,"Defines dependency type (FS, SS, FF, SF)."
+7,Activity ↔ Expenses,<ActivityExpense><ActivityObjectId> → <Activity><ObjectId>,Links expenses to activities.
+8,Expense ↔ Category,<ExpenseCategoryObjectId> → <ExpenseCategory><ObjectId>,Resolves expense category name/type.
+9,Calendar ↔ Holidays/Exceptions,<Calendar><ObjectId> → <HolidayOrException>,Defines non-working days and holidays.
+10,Duration Conversion,"For <ActualDuration>, <AtCompletionDuration>, <PlannedDuration>, <RemainingDuration>, <OriginalDuration> → divide by <HoursPerDay>",Convert stored hours to calendar days using the assigned calendar. If no calendar: use project default or 8 hrs/day.
+11,Date Rule: Not Started,If <Status> = Not Started → use <StartDate> & <FinishDate>,Standard planned dates for unscheduled work.
+12,Date Rule: In Progress,If <Status> = In Progress → use <ActualStartDate> & <FinishDate>,Actual start but still using planned finish.
+13,Date Rule: Completed,If <Status> = Completed → use <ActualStartDate> & <ActualFinishDate>,Fully actualized start/finish dates.
+14,Cross-Referencing IDs,All <ObjectId> fields are foreign keys,"Some require multi-step joins (e.g., PredecessorActivityObjectId → Activity.ObjectId → ProjectObjectId)."

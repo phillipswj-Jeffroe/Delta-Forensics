@@ -58,3 +58,17 @@ Thumbs.db
 # IDE specific files
 .idea/
 .vscode/
+
+# Allow checked-in mapping CSV at repo root
+!XER Database Mapping.csv
+!XML Database Mapping.csv
+
+# Microsoft Office temporary files
+~$*.docx
+~$*.xlsx
+
+# Generated analysis outputs
+outputs/
+
+# Windows shortcuts
+*.lnk

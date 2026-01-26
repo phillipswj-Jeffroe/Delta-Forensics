@@ -9,7 +9,8 @@ def parse_csv_data(folder_path, file_identifier):
             "activities": pd.DataFrame(), 
             "expenses": pd.DataFrame(), 
             "relationships": pd.DataFrame(),
-            "project": {}
+            "project": {},
+            "wbs": pd.DataFrame()
         }
         activities_path = os.path.join(folder_path, f'{file_identifier}_activities.csv')
         if not os.path.exists(activities_path): return None
@@ -43,6 +44,11 @@ def parse_csv_data(folder_path, file_identifier):
         if os.path.exists(project_path):
             project_df = pd.read_csv(project_path)
             data['project'] = project_df.iloc[0].to_dict()
+
+        # --- Optional WBS ---
+        wbs_path = os.path.join(folder_path, f'{file_identifier}_wbs.csv')
+        if os.path.exists(wbs_path):
+            data['wbs'] = pd.read_csv(wbs_path)
 
         return data
     except Exception as e:
